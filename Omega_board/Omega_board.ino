@@ -1,4 +1,25 @@
-Color colors[] = {RED, BLUE, GREEN, ORANGE, YELLOW, MAGENTA, WHITE};
+#define CHANGESTATE_BOARD 1
+#define CHANGESTATE_RLGL 2
+#define CHANGESTATE_CHEERS 3
+#define CHANGESTATE_CHAIRS 4
+#define SPINNERRING 20
+#define PLAYER 21
+#define STRUT_ONE 22
+#define STRUT_TWO 23
+#define UNASSIGNED 25
+#define SPINTARGET 27
+#define GAMERING 30
+#define FLASH_TIMER_MIN 200
+#define FLASH_TIMER_MID 400
+#define FLASH_TIMER_MAX 600
+#define STATE_TIMER_LONG 1000
+#define STATE_TIMER_SHORT 500
+#define SPIN_TIMER_MAX 200
+#define SPIN_TIMER_START 100
+#define CHANGE_GAME_TIMER 2000
+
+//Basic Functionality
+Color colors[] = {RED, BLUE, GREEN, ORANGE, YELLOW, MAGENTA, WHITE, CYAN, OFF};
 bool isPlayer = false;
 bool isSpinner = false;
 bool isSpinnerRing = false;
@@ -8,12 +29,13 @@ bool wasPlayer = false;
 byte colorIndex = 0;
 byte tempVal = 0;
 bool ringStarted = false;
-
-//Blinking stuff
-bool isBlinker = false;
-bool blinkOff = false;
-Timer blinkTimer;
 Timer stateChangeTimer;
+
+//Flashing stuff
+bool isFlasher = false;
+bool flashOff = true;
+int flashAmt = FLASH_TIMER_MIN;
+Timer flashTimer;
 
 //Spinner Stuff
 bool isSpinning = false;
@@ -21,44 +43,61 @@ byte spinCurrent = 0;
 Timer spinTimer;
 int currentTimeAmount;
 bool spinComplete = false;
+Timer displayChangeTimer;
 
 enum GameState {
   SETUP,
-  INGAME
+  BOARD,
+  RLGL_SETUP,
+  RLGL,
+  CHEERS_SETUP,
+  CHEERS,
+  CHAIRS_SETUP,
+  CHAIRS
 };
 
 byte state = SETUP;
 
-#define SPINNERRING 20
-#define PLAYER 21
-#define STRUT_ONE 22
-#define STRUT_TWO 23
-#define GAMERING 30
-#define UNASSIGNED 25
-#define CHANGESTATE 26
-#define BLINK_TIMER_MAX 200
-#define STATE_TIMER 1000
-#define SPIN_TIMER_MAX 1000
-#define SPIN_TIMER_START 100
-#define SPINTARGET 27
-
 void setup() {
   // put your setup code here, to run once:
-  blinkTimer.set(BLINK_TIMER_MAX);
+  flashTimer.set(FLASH_TIMER_MAX);
+  randomize();
 }
 
 void loop() {
+  //Flash Flashing blinks
+  flashFlashers();
   // put your main code here, to run repeatedly:
    switch(state){
     case SETUP:
       setupLoop();
       break;
-    case INGAME:
-      inGameLoop();
+    case BOARD:
+      boardLoop();
+      break;
+    case RLGL_SETUP:
+      //boardLoop();
+      break;
+    case RLGL:
+      //boardLoop();
+      break;
+    case CHEERS_SETUP:
+      cheersSetupLoop();
+      break;
+    case CHEERS:
+      //cheersGameLoop();
+      break;
+    case CHAIRS_SETUP:
+      //boardLoop();
+      break;
+    case CHAIRS:
+      //boardLoop();
       break;
     default:
       break;
   }
+
+  buttonDoubleClicked();
 }
 
 void setupLoop() {
@@ -83,8 +122,8 @@ void setupLoop() {
     FOREACH_FACE(f){
       if(!isValueReceivedOnFaceExpired(f)){
         tempVal = getLastValueReceivedOnFace(f);
-        if(tempVal == CHANGESTATE)
-          state = INGAME;
+        if(tempVal == CHANGESTATE_BOARD)
+          state = BOARD;
       }
     }
   }
@@ -103,10 +142,11 @@ void setupLoop() {
     FOREACH_FACE(f){
       if(!isValueReceivedOnFaceExpired(f)){
         tempVal = getLastValueReceivedOnFace(f);
-        if(tempVal == CHANGESTATE)
-          state = INGAME;
+        if(tempVal == CHANGESTATE_BOARD)
+          state = BOARD;
         }
     }
+    colorIndex = 7;
   }
   
   if(!isSpinner && !isPlayer){
@@ -116,14 +156,14 @@ void setupLoop() {
         if(tempVal >= 10 && tempVal <=12){
           isSpinnerRing = true;
           colorIndex = tempVal - 10;
+          setValueSentOnFace(SPINNERRING, (f+3)%6);
         }
-        else if(tempVal == CHANGESTATE){
-          state = INGAME;
+        else if(tempVal == CHANGESTATE_BOARD){
+          state = BOARD;
         }
       }
     }
-    if(isSpinnerRing){
-      setValueSentOnAllFaces(SPINNERRING);
+    if(isSpinnerRing){    
       isGameRing = false;
     }
   }
@@ -136,15 +176,17 @@ void setupLoop() {
         tempVal = getLastValueReceivedOnFace(f);
         if(tempVal == SPINNERRING){ //Neighbor is ring, i am a strut
           isStrut = true;
-           setValueSentOnAllFaces(STRUT_ONE);
+           setValueSentOnFace(STRUT_ONE, (f+3)%6);
+           colorIndex = 5;
         }
         else if(tempVal == STRUT_ONE){
           isStrut = true;
           isGameRing = false;
-          setValueSentOnAllFaces(STRUT_TWO);
+          setValueSentOnFace(STRUT_TWO, (f+3)%6);
+          colorIndex = 4;
         }
-        else if(tempVal == CHANGESTATE)
-          state = INGAME;
+        else if(tempVal == CHANGESTATE_BOARD )
+          state = BOARD;
         }
     }
 
@@ -157,22 +199,22 @@ void setupLoop() {
   //Create Game Ring
   if(!isSpinner && !isPlayer && !isSpinnerRing && !isStrut){
     isGameRing = true;
-    isBlinker = false;
+    isFlasher = false;
     FOREACH_FACE(f){
       if(!isValueReceivedOnFaceExpired(f)){
         tempVal = getLastValueReceivedOnFace(f);
-        //Make "blinkers"
-        if(tempVal == STRUT_TWO && !isValueReceivedOnFaceExpired((f+1)%6) && !isValueReceivedOnFaceExpired((f-1)%6))
-          isBlinker = true;
+        //Make "flashers"
+        if(tempVal == STRUT_TWO)
+          isFlasher = true;
         if(tempVal >= GAMERING && !ringStarted){
           colorIndex = (tempVal - GAMERING + 1) % 3;
           ringStarted = true;
-          state = INGAME;
+          state = BOARD;
           if(!isValueReceivedOnFaceExpired((f+3)%6))
             setValueSentOnFace(GAMERING + colorIndex, (f+3)%6);
-          else if(!isValueReceivedOnFaceExpired((f+4)%6))
+          else if(!isValueReceivedOnFaceExpired((f+4)%6) && getLastValueReceivedOnFace((f+4)%6) == UNASSIGNED)
             setValueSentOnFace(GAMERING + colorIndex, (f+4)%6);
-          else if(!isValueReceivedOnFaceExpired((f+2)%6))
+          else if(!isValueReceivedOnFaceExpired((f+2)%6) && getLastValueReceivedOnFace((f+2)%6) == UNASSIGNED)
             setValueSentOnFace(GAMERING + colorIndex, (f+2)%6);
         }
       }
@@ -194,66 +236,101 @@ void setupLoop() {
         if(tempVal != STRUT_TWO && !ringStarted){
           setValueSentOnFace(GAMERING, f);
           ringStarted = true;
-          state = INGAME;
+          state = BOARD;
         }
       }
     }
   }
 
-  //Draw
-  blinkBlinkers();
-  
   //Set Color
-  if(isSpinner || (isBlinker && blinkOff))
+  if(isFlasher && flashOff)
     setColor(OFF);
   else
     setColor(colors[colorIndex]);  
 
-  if(state == INGAME)
-    stateChangeTimer.set(STATE_TIMER);
+  if(state == BOARD)
+    stateChangeTimer.set(STATE_TIMER_LONG);
 }
 
-void inGameLoop(){
-  if(stateChangeTimer.isExpired())
-    setValueSentOnAllFaces(CHANGESTATE);
-
+void boardLoop(){
+  if(stateChangeTimer.isExpired()){
+    setValueSentOnAllFaces(CHANGESTATE_BOARD);
+  }
+  
   if(isSpinner && buttonDoubleClicked() && !isSpinning){
     spinSpinner();
   }
+
+  //Check for new State changes
+  FOREACH_FACE(f){
+    if(!isValueReceivedOnFaceExpired(f)){
+      tempVal = getLastValueReceivedOnFace(f);
+      if(tempVal == CHANGESTATE_RLGL)
+        state = RLGL_SETUP;
+      if(tempVal == CHANGESTATE_CHEERS)
+        state = CHEERS_SETUP;
+      if(tempVal == CHANGESTATE_CHAIRS)
+        state = CHAIRS_SETUP;
+    }
+  }
   
   //Draw
-  blinkBlinkers();
-  
-  //Set Color
-  if(isSpinner || (isBlinker && blinkOff)){
+  if(isFlasher && flashOff){
     setColor(OFF);
-    if(spinComplete)
-      setColor(colors[spinCurrent % 3]);
   }
-  else
-    setColor(colors[colorIndex]);
+  else{
+    if(spinComplete && isSpinner){
+      setColor(colors[spinCurrent % 3]);
+      if(displayChangeTimer.isExpired()){
+        switch((spinCurrent % 3)){
+          case 0:
+            state = CHEERS_SETUP;
+            break;
+          case 1:
+            state = CHEERS_SETUP;
+            break;
+          case 2:
+            state = CHEERS_SETUP;
+            break;
+        }
+      }
+    }
+    else{
+      setColor(colors[colorIndex]);
+    }
+  }
 
-  if(isSpinning && (isSpinner || isSpinnerRing ))
+  if(isSpinning && isSpinner)
     spinSpinner();
+
+  if(state == RLGL_SETUP)
+    stateChangeTimer.set(STATE_TIMER_SHORT);
+  if(state == CHEERS_SETUP)
+    stateChangeTimer.set(STATE_TIMER_SHORT);
+  if(state == CHAIRS_SETUP)
+    stateChangeTimer.set(STATE_TIMER_SHORT);
 }
 
-void blinkBlinkers(){
-  if(isBlinker && blinkTimer.isExpired()){
-    blinkTimer.set(BLINK_TIMER_MAX);
-    if(ringStarted){
-      blinkOff = !blinkOff;
+//Makes blinks flash from their color to black
+void flashFlashers(){
+  if(isFlasher && flashTimer.isExpired()){
+    flashTimer.set(flashAmt);
+    if(state == BOARD || state == CHEERS){
+      flashOff = !flashOff;
     }
   }
 }
 
+//Spins the spinner
 void spinSpinner(){
   if(!isSpinning){
     isSpinning = true;
+    colorIndex = 8;
     spinCurrent = random(5);
     spinTimer.set(SPIN_TIMER_START);
     currentTimeAmount = SPIN_TIMER_START;
     if(isSpinner){
-      setValueOnAllFaces(
+      //setValueOnAllFaces(
       setValueSentOnFace(SPINTARGET, spinCurrent);
       spinComplete = false;
     }
@@ -271,22 +348,220 @@ void spinSpinner(){
       else{
         isSpinning = false;
         spinComplete = true;
+        isFlasher = true;
+        displayChangeTimer.set(CHANGE_GAME_TIMER);
       }
     }
-  }
-
-  if(isSpinner){
-    setColorOnFace(colors[spinCurrent % 3], spinCurrent);
-  }
-  else{
-  
-    FOREACH_FACE(f){
-      if(getLastValueReceivedOnFace(f) == SPINTARGET){
-        setColorOnFace(WHITE, f);
-      }
-      else{
-        setColorOnFace(colors[colorIndex], f);
+    else{
+      if(isSpinner){
+        setColorOnFace(colors[spinCurrent % 3], spinCurrent);
       }
     }
   }
 }
+
+//RED LIGHT GREEN LIGHT
+
+//CHEERS
+#define CHANGESTATE 10
+#define NEEDSCOLOR 21
+#define IDLE_STATE 22
+#define LOSE 31
+#define WIN 32
+#define ID_CHECK 40
+#define COLOR_CHECK 50
+#define VERIFY_ID_TIMER 100
+#define COOLDOWN_TIMER 1000
+#define ROUND_TIMER 10000
+
+//Players
+bool colorAssigned = false;
+bool searchingForMate = false;
+byte bumpCount = 0;
+byte lastBumped = 0;
+bool allowBump = false;
+int myColor[] = {255,0,0};
+byte myIndex = 0;
+bool checkColor = false;
+Timer coolDownTimer;
+
+//Spinner
+Timer roundTimer;
+bool roundTimerSet = false;
+float pctDone;
+byte firstIn;
+byte lastIn;
+byte checkedIn[6];
+byte currentID;
+
+void cheersSetupLoop() {
+  isFlasher = false;
+  
+  if(stateChangeTimer.isExpired()){
+    setValueSentOnAllFaces(CHANGESTATE_CHEERS);
+  }
+  //Check for state Change
+  FOREACH_FACE(f){
+    if(!isValueReceivedOnFaceExpired(f)){
+      if(getLastValueReceivedOnFace(f) >= CHANGESTATE){
+        state = CHEERS;
+        if(!isPlayer)
+          setValueSentOnFace(getLastValueReceivedOnFace(f), (f+3)%6);
+        if(isPlayer)
+          myIndex = getLastValueReceivedOnFace(f) - CHANGESTATE;
+      }
+    }
+   }
+  
+  //Change State Input
+  if(buttonDoubleClicked() && isSpinner){
+    state = CHEERS;
+    FOREACH_FACE(f){
+      setValueSentOnFace(CHANGESTATE+f,f);
+    }
+  }
+
+  //Draw
+  if(isPlayer)
+    setColor(GREEN);
+  else if(isSpinner)
+    setColor(CYAN);
+  else
+    setColor(WHITE);
+}
+
+void cheersGameLoop(){
+  //PLAYER
+  if(isPlayer){ 
+    setValueSentOnAllFaces(ID_CHECK + myIndex);
+    
+    if(isFlasher){ //I'm blinking because I successfully bumped, so I need a new color
+       if(coolDownTimer.isExpired()){
+          isFlasher = false;
+       }
+    }     
+    else if(isAlone()){ //Check number of faces to see if we're detached from the ring
+      if(!searchingForMate){
+        searchingForMate = true;
+        checkColor = false;
+        allowBump = true;
+      }
+    }
+    else{
+      searchingForMate = false;
+    }
+    
+    if(!searchingForMate && allowBump){ //ID check
+      allowBump = false;
+    
+      FOREACH_FACE(f){
+        if(!isValueReceivedOnFaceExpired(f)){
+          if(getLastValueReceivedOnFace(f) != lastBumped && getLastValueReceivedOnFace(f) >= ID_CHECK){
+            bumpCount++;
+            isFlasher = true;
+            coolDownTimer.set(COOLDOWN_TIMER);
+            lastBumped = getLastValueReceivedOnFace(f);
+            bumpUpColor();
+          }
+        }
+      }
+    }
+
+    //Loss check
+    FOREACH_FACE(f){
+      if(!isValueReceivedOnFaceExpired(f)){
+        if(getLastValueReceivedOnFace(f) == LOSE){
+          myColor[0] = 255;
+          myColor[1] = 0;
+        }
+      }
+    }
+  }
+  //BRAIN
+  if(isSpinner){
+    //Timer
+    if(!roundTimerSet){
+      roundTimer.set(ROUND_TIMER);
+      roundTimerSet = true;
+    }
+    else{
+      if(roundTimer.isExpired()){
+          isFlasher = false;
+          FOREACH_FACE(f){
+            if(!isValueReceivedOnFaceExpired(f)){
+              if(getLastValueReceivedOnFace(f) >= ID_CHECK){
+                currentID = getLastValueReceivedOnFace(f) - ID_CHECK;
+                bool slotFound = false;
+                for(byte i = 0; i < 6; i++){
+                  if(!slotFound){
+                    if(currentID == checkedIn[i])
+                      slotFound = true; //Duplicate protection
+                    else if(checkedIn[i] == 6){ //Default?
+                      checkedIn[i] = currentID;
+                      slotFound = true;
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          firstIn = checkedIn[0];
+          lastIn = checkedIn[5];
+
+          if(lastIn != 6){
+            //Show results
+            setValueSentOnFace(LOSE,lastIn);
+          }
+        }
+        else{
+          isFlasher = true;
+          pctDone = (float)(ROUND_TIMER - roundTimer.getRemaining()) / (float)ROUND_TIMER;
+          pctDone *= 100.0;
+          if(pctDone >= 75){
+            setColor(RED);
+            flashAmt = FLASH_TIMER_MIN;
+          }
+          else if(pctDone >= 50){
+            setColor(YELLOW);
+            flashAmt = FLASH_TIMER_MID;
+          }
+          else{
+            setColor(GREEN);
+            flashAmt = FLASH_TIMER_MAX;
+          }
+        }
+    }
+  }
+  
+  //RING
+  if(!isPlayer && !isSpinner){
+    FOREACH_FACE(f){
+      if(!isValueReceivedOnFaceExpired(f)){
+        if(getLastValueReceivedOnFace(f) >= ID_CHECK){
+          setValueSentOnFace(ID_CHECK+f,(f+3)%6);
+        }
+      }
+    }
+  }
+  
+  if(isFlasher && flashOff){
+    setColor(OFF);
+  }
+  else if(isPlayer){
+    setColor(makeColorRGB(myColor[0], myColor[1], myColor[2]));
+  }
+  
+}
+
+void bumpUpColor(){
+  if(myColor[1] < 255){
+    myColor[1] += 50;
+    if(myColor[1] > 255)
+      myColor[1] = 255;
+  }
+  else{
+    myColor[0] -= 50;
+  }
+}
+//MUSICAL CHAIRS
