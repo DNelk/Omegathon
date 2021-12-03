@@ -19,6 +19,9 @@
 byte teamHues[6] = {22, 49, 82, 99, 160, 200}; //team colours
 byte teamScores[6] = {0, 0, 0, 0, 0, 0}; //scores, also uses teamIndex to line up with team hues
 byte teamIndex = 0;
+bool isPlayer = false;
+bool isBrain = false;
+byte faceCount;
 
 //GAME STATES
 enum gameStates {
@@ -34,7 +37,6 @@ byte mode = READY; //start at this mode
 
 
 bool isRippling; //flag to check if the middle blink is about to change. used for a display function that ripples .3 seconds before switching to red. used as a display warning
-bool isMiddleLight = false; //Check if blink is the middle
 bool isGreenLight = false;  //check if light is green or red
 bool roundOver = false; //checks if the light changes in order to set timers
 
@@ -48,6 +50,7 @@ bool roundOver = false; //checks if the light changes in order to set timers
 #define GREEN_INTERVAL_MIN 2000
 
 #define RIPPLING_INTERVAL 300
+#define CLICKTHRESHOLD 20
 
 //Timers
 Timer lightTimer; //Timer for how long the middle blink is red or green. Is randomized between a min and max range.
@@ -60,6 +63,7 @@ const byte ROTATION_MS_PER_STEP = 50; //Winning blink displays a rotating pip, a
 
 void setup() {
   mode = READY; //start at READY
+  setColor(WHITE);
 }
 
 
@@ -99,6 +103,9 @@ void loop() {
       loserLoop();
       break;
   }
+
+  buttonSingleClicked();
+  buttonDoubleClicked();
 }
 
 
@@ -107,30 +114,63 @@ Color getColorForTeam(byte t) { //returns Team Color
 }
 
 void readyLoop() {
-  if (buttonDoubleClicked()) { //Change Teams
+  faceCount = 0;
+  FOREACH_FACE(f){
+    if(!isValueReceivedOnFaceExpired(f)){
+      faceCount++;
+    }
+  }
+  //Check Players and Spinner
+  isPlayer = faceCount <= 1;
+  isBrain = faceCount == 6;
+  
+  if (buttonPressed() && isPlayer) { //Change Teams
     teamIndex++;
-    setColor(getColorForTeam(teamIndex)); //Set Team
     if (teamIndex > COUNT_OF(teamHues)) { //if reaching the end, reset to beginning of team hues array
       teamIndex = 0;
     }
   }
 
-  if ( buttonLongPressed() ) { //long press middle blink to set it to the middle light and START GAME
+  if (buttonDoubleClicked() && isBrain) { //long press middle blink to set it to the middle light and START GAME
     mode = REDLIGHT; //start at red light
     roundOver = true;
     isGreenLight = false;
-    isMiddleLight = true; 
   }
-
-  FOREACH_FACE( f ) { //checks neighbors for REDLIGHT because the game starts on it. will change neighbors to LOSE_POINTS mode.
-    if ( !isValueReceivedOnFaceExpired( f ) ) {
-      byte neighbor = getLastValueReceivedOnFace( f );
-      bool didNeighborJustChange = didValueOnFaceChange( f );
-      if (neighbor == REDLIGHT && didNeighborJustChange) { //if there is a red light neighbor
-        mode = LOSE_POINTS; //change self to losing point mode
+//checks neighbors for REDLIGHT because the game starts on it. will change neighbors to LOSE_POINTS mode.
+  if(isPlayer){
+    FOREACH_FACE( f ) {
+      if ( !isValueReceivedOnFaceExpired( f ) ) {
+        byte neighbor = getLastValueReceivedOnFace( f );
+        bool didNeighborJustChange = didValueOnFaceChange( f );
+        if (neighbor == REDLIGHT && didNeighborJustChange) { //if there is a red light neighbor
+          mode = LOSE_POINTS; //change self to losing point mode
+        }
       }
     }
   }
+
+  if(!isPlayer && !isBrain){
+    FOREACH_FACE( f ) {
+      if ( !isValueReceivedOnFaceExpired( f ) ) {
+          setValueSentOnFace(getLastValueReceivedOnFace(f), (f+3)%6);
+          if(getLastValueReceivedOnFace(f) == WINNER){
+            mode = LOSER;
+          }
+          if(getLastValueReceivedOnFace(f) == LOSER){
+            setValueSentOnAllFaces(getLastValueReceivedOnFace);
+            mode = LOSER;
+          }
+      }
+    }
+  }
+
+  //Draw
+  if(isPlayer)
+    setColor(getColorForTeam(teamIndex)); //Set Team
+  else if(isBrain)
+    setColor(CYAN);
+  else
+    setColor(WHITE);
 }
 
 void redLightLoop() { //loop for middle blink when it is red
@@ -233,47 +273,47 @@ void gainPointsLoop() { //player piece loop for when middle blink/light is green
 
 void scoreDisplay() {
 
-  if (teamScores[teamIndex] > 10) { //if greater than 10, light up face 0
+  if (teamScores[teamIndex] > CLICKTHRESHOLD) { //if greater than 10, light up face 0
     setColorOnFace(WHITE, 0);
   }
 
   else {
     setColorOnFace(getColorForTeam(teamIndex), 0); //else, set face to off
   }
-  if (teamScores[teamIndex] > 20) {
+  if (teamScores[teamIndex] > CLICKTHRESHOLD * 2) {
     setColorOnFace(WHITE, 1);
   }
   else {
     setColorOnFace(getColorForTeam(teamIndex), 1);
   }
 
-  if (teamScores[teamIndex] > 30) {
+  if (teamScores[teamIndex] >  CLICKTHRESHOLD * 3) {
     setColorOnFace(WHITE, 2);
   }
   else {
     setColorOnFace(getColorForTeam(teamIndex), 2);
   }
 
-  if (teamScores[teamIndex] > 40) {
+  if (teamScores[teamIndex] >  CLICKTHRESHOLD * 4) {
     setColorOnFace(WHITE, 3);
   }
   else {
     setColorOnFace(getColorForTeam(teamIndex), 3);
   }
 
-  if (teamScores[teamIndex] > 50) {
+  if (teamScores[teamIndex] >  CLICKTHRESHOLD * 5) {
     setColorOnFace(WHITE, 4);
   }
   else {
     setColorOnFace(getColorForTeam(teamIndex), 4);
   }
-  if (teamScores[teamIndex] == 60) {
+  if (teamScores[teamIndex] == CLICKTHRESHOLD * 6) {
     setColorOnFace(WHITE, 5);
     //whoever gets to 60 wins!
     mode = WINNER;
     
   }
-  else if (teamScores[teamIndex] < 60) { //light up face, but player hasn't won yet
+  else if (teamScores[teamIndex] <  CLICKTHRESHOLD * 6) { //light up face, but player hasn't won yet
     setColorOnFace(getColorForTeam(teamIndex), 5);
   }
 

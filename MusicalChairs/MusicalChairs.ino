@@ -3,8 +3,9 @@
  * When all players are ready, double click the center (cyan) blink.
  * 
  * GAMEPLAY: All players find the other player with their blink color and form a team. Going one at a time, they flip their blinks on the edge of the table.
- * When all players on a team have flipped their blinks, connect back to the part of the ring matching their color. Anyone who does not make it back to the center before the timer is complete loses.
+ * When all players on a team have flipp\ed their blinks, connect back to the part of the ring matching their color. Anyone who does not make it back to the center before the timer is complete loses.
  */
+#define PLAYER 1
 #define CHANGESTATE 10
 #define NEEDSCOLOR 21
 #define IDLE_STATE 22
@@ -39,7 +40,7 @@ bool colorAssigned = false;
 //Brain
 byte rnd;
 byte currentColor;
-byte foundCount ;
+byte foundCount;
 bool generateNewColor = true;
 bool assignColorsToPlayers = true;
 bool assignColorsToSpaces = false;
@@ -52,6 +53,8 @@ float pctDone;
 
 //Ring
 bool hasColor = false;
+bool isRing = false;
+bool isRingAnchor = false;
 
 //Blinking stuff
 bool isBlinker = false;
@@ -91,13 +94,31 @@ void loop() {
 void setupLoop() {
   //Determine who is a player and check for state change
    faceCount = 0;
+   isRingAnchor = false;
+   isRing = false;
    FOREACH_FACE(f){
     if(!isValueReceivedOnFaceExpired(f)){
       faceCount++;
+      if(getLastValueReceivedOnFace(f) == PLAYER){
+        isRingAnchor = true;
+      }
+      if(getLastValueReceivedOnFace(f) == CHANGESTATE-1 && !isRingAnchor){
+        state = INGAME;
+        isRing = true;
+        setValueSentOnFace(CHANGESTATE-1, (f+3)%6);
+      }
       if(getLastValueReceivedOnFace(f) >= CHANGESTATE){
         state = INGAME;
-        if(!isPlayer)
+        if(!isPlayer){
           setValueSentOnFace(getLastValueReceivedOnFace(f), (f+3)%6);
+          if(isRingAnchor){
+            for(byte i = 0; i < 6; i++){
+              if(i != f && i != (f+3)%6){
+                setValueSentOnFace(CHANGESTATE-1, i);
+              }
+            }
+          }  
+        }
         if(isPlayer)
           myIndex = getLastValueReceivedOnFace(f) - CHANGESTATE;
       }
@@ -116,7 +137,11 @@ void setupLoop() {
     }
   }
 
-    //Draw
+  if(isPlayer){
+    setValueSentOnAllFaces(PLAYER);
+  }
+  
+  //Draw
   if(isPlayer)
     setColor(GREEN);
   else if(isBrain)
@@ -251,20 +276,28 @@ void inGameLoop(){
       }
   }
   //RING
-  if(!isPlayer && !isBrain){
+  if(!isPlayer && !isBrain && !isRing){
     FOREACH_FACE(f){
       if(!isValueReceivedOnFaceExpired(f)){
         if(getLastValueReceivedOnFace(f) >= SETTINGCOLORPLAYER && getLastValueReceivedOnFace(f) < SETTINGCOLORSPACES){
           setValueSentOnFace(getLastValueReceivedOnFace(f),(f+3)%6);
         }
         if(getLastValueReceivedOnFace(f) >= SETTINGCOLORSPACES && !hasColor){
-          myColor = getLastValueReceivedOnFace(f) - SETTINGCOLORSPACES;
-          setValueSentOnAllFaces(IDLE_STATE);
+          if(isRingAnchor && !hasColor){
+            myColor = getLastValueReceivedOnFace(f) - SETTINGCOLORSPACES;
+            setValueSentOnAllFaces(IDLE_STATE);
+          }
+          else{
+            setValueSentOnFace(getLastValueReceivedOnFace(f), (f+3)%6);
+          }
           hasColor = true;
         }
         if(getLastValueReceivedOnFace(f) == COLOR_RECEIVED && !hasColor){
           setValueSentOnFace(NEEDSCOLOR, (f+3)%6);
         } 
+        if(getLastValueReceivedOnFace(f) == NEEDSCOLOR){
+          setValueSentOnFace(NEEDSCOLOR, (f+3)%6);
+        }
       }
     }
   }
@@ -318,6 +351,9 @@ void inGameLoop(){
   
   if(isBlinker && blinkOff){
     setColor(OFF);
+  }
+  else if(isRing){
+    setColor(CYAN);
   }
   else{
     setColor(colors[myColor]);
