@@ -119,17 +119,17 @@ void loop() {
       break;
     case RLGL_SETUP:
       setValueSentOnAllFaces(LAUNCH_RLGL);
-      rlglSetupLoop();
+      //rlglSetupLoop();
       break;
     case RLGL_GAME:
-      rlglGameLoop();
+      //rlglGameLoop();
       break;
     case CHEERS_SETUP:
       setValueSentOnAllFaces(LAUNCH_CHEERS);
-      //cheersSetupLoop();
+      cheersSetupLoop();
       break;
     case CHEERS_GAME:
-      //cheersGameLoop();
+      cheersGameLoop();
       break;
     case CHAIRS_SETUP:
       setValueSentOnAllFaces(LAUNCH_CHAIRS);
@@ -221,13 +221,13 @@ void boardLoop(){
     launchingGame = false;
     switch((spinCurrent % 3)){
       case 0:
-        state = CHAIRS_SETUP;
+        state = CHEERS_SETUP;
         break;
       case 1:
-        state = CHAIRS_SETUP;
+        state = CHEERS_SETUP;
         break;
       case 2:
-        state = CHAIRS_SETUP;
+        state = CHEERS_SETUP;
         break;
     }
   }
@@ -359,13 +359,13 @@ const unsigned int RED_INTERVAL_MIN = 2000;
 const unsigned int GREEN_INTERVAL_MAX = 4000;
 const unsigned int GREEN_INTERVAL_MIN = 2000;
 
-#define RIPPLING_INTERVAL 300
+//const unsigned int RIPPLING_INTERVAL = 300;
 #define CLICKTHRESHOLD 20
 
 rlglStates rlglState;
 bool roundOver;
 bool isGreenLight;
-Timer ripplingTimer; //Timer for how long middle blink ripples before changing to red
+//Timer ripplingTimer; //Timer for how long middle blink ripples before changing to red
 const byte ROTATION_MS_PER_STEP = 50; //Winning blink displays a rotating pip, all others turn off.
 
 
@@ -413,6 +413,9 @@ void rlglGameLoop() {
       setValueSentOnAllFaces(rlglState);
       loserLoop();
       break;
+      
+    default:
+      break;
   }
 
   buttonSingleClicked();
@@ -439,7 +442,7 @@ void readyLoop() {
   if(!isPlayer && !isBrain){
     FOREACH_FACE( f ) {
       if ( !isValueReceivedOnFaceExpired( f ) ) {
-          setValueSentOnFace(getLastValueReceivedOnFace(f), (f+3)%6);
+          setValueSentOnFace(getLastValueReceivedOnFace(f), oppositeFace(f));
           if(getLastValueReceivedOnFace(f) == WINNER){
             rlglState = LOSER;
           }
@@ -462,7 +465,7 @@ void readyLoop() {
 
 void redLightLoop() { //loop for middle blink when it is red
   if (roundOver == true && isGreenLight == false) { //roundOver checks if the light has changed
-    roundTimer.set(RED_INTERVAL_MIN + random(RED_INTERVAL_MAX));
+    roundTimer.set(RED_INTERVAL_MIN + RED_INTERVAL_MAX);
     roundOver = false;
   }
   setColor(RED);
@@ -475,18 +478,18 @@ void redLightLoop() { //loop for middle blink when it is red
 
 void greenLightLoop() { //loop for middle blink when it is green
   if (roundOver == true && isGreenLight == true) {
-    roundTimer.set(GREEN_INTERVAL_MIN + random(GREEN_INTERVAL_MAX)); //set random timer for green light
+    roundTimer.set(GREEN_INTERVAL_MIN +GREEN_INTERVAL_MAX); //set random timer for green light
     roundOver = false;
   }
   setColor(GREEN);
   if (roundTimer.getRemaining() > 0 && roundTimer.getRemaining() < 301) { //in the last .3 seconds, ripple to send a visual warning
-    ripplingTimer.set(RIPPLING_INTERVAL);
+    //ripplingTimer.set(RIPPLING_INTERVAL);
   }
-  if (!ripplingTimer.isExpired()) {
+ /* if (!ripplingTimer.isExpired()) {
     FOREACH_FACE(f) {
-      setColorOnFace(makeColorHSB(70, 255, random(50) + 205), f); //70 is GREEN HUE, ripple while the timer is not expired
+      setColorOnFace(YELLOW, f); //70 is GREEN HUE, ripple while the timer is not expired
     }
-  }
+  }*/
   if (roundTimer.isExpired()) { //when green light timer expires, change to red right
     roundOver = true;
     isGreenLight = false;
@@ -906,6 +909,14 @@ void chairsGameLoop(){
       }
     }
   }
+
+  //Players need to attach to their matching color
+  if(isPlayer){
+    if(isAlone()){
+      setValueSentOnAllFaces(colorIndex);
+    }
+  }
+  
   if(isPlayer || isSpoke || isSpinnerRing || isJoint)
     setColor(gameColors[colorIndex]);
 }
