@@ -63,7 +63,7 @@ unsigned int flashAmt;
 //Players
 bool allowBump; //Allow a player to player bump?
 byte lastBumped;
-byte bumpCount;
+byte score; //ALSO USED FOR RLGL
 byte cheersPlayerHue; //Color hue
 //Brain
 byte receivedCount;
@@ -118,20 +118,25 @@ void loop() {
       boardLoop();
       break;
     case RLGL_SETUP:
+      setValueSentOnAllFaces(LAUNCH_RLGL);
+      rlglSetupLoop();
+      break;
+    case RLGL_GAME:
+      rlglGameLoop();
       break;
     case CHEERS_SETUP:
       setValueSentOnAllFaces(LAUNCH_CHEERS);
-      cheersSetupLoop();
+      //cheersSetupLoop();
       break;
     case CHEERS_GAME:
-      cheersGameLoop();
+      //cheersGameLoop();
       break;
     case CHAIRS_SETUP:
       setValueSentOnAllFaces(LAUNCH_CHAIRS);
-      chairsSetupLoop();
+      //chairsSetupLoop();
       break;
     case CHAIRS_GAME:
-      chairsGameLoop();
+      //chairsGameLoop();
       break;
   }
 }
@@ -216,13 +221,13 @@ void boardLoop(){
     launchingGame = false;
     switch((spinCurrent % 3)){
       case 0:
-        state = CHEERS_SETUP;
+        state = CHAIRS_SETUP;
         break;
       case 1:
-        state = CHEERS_SETUP;
+        state = CHAIRS_SETUP;
         break;
       case 2:
-        state = CHEERS_SETUP;
+        state = CHAIRS_SETUP;
         break;
     }
   }
@@ -335,6 +340,291 @@ void spinSpinner(){
 //RLGL
 ///
 
+//GAME STATES
+enum rlglStates {
+  READY, //waiting for game to start, set teams
+  REDLIGHT, //Middle blink, red state. Any neighbor will lose points if clicked
+  GREENLIGHT, //Middle blink, green state. Any neighbor will gain points if clicked
+  GAIN_POINTS,  //player piece, able to gain points when greenlight
+  LOSE_POINTS, //player piece, loses half of total points when redlight
+  WINNER, //player piece, displays win
+  LOSER //player piece, displays loss
+};
+
+//MIDDLE BLINK / REDLIGHT GREENLIGHT INTERVALS
+
+const unsigned int RED_INTERVAL_MAX = 4000;
+const unsigned int RED_INTERVAL_MIN = 2000;
+
+const unsigned int GREEN_INTERVAL_MAX = 4000;
+const unsigned int GREEN_INTERVAL_MIN = 2000;
+
+#define RIPPLING_INTERVAL 300
+#define CLICKTHRESHOLD 20
+
+rlglStates rlglState;
+bool roundOver;
+bool isGreenLight;
+Timer ripplingTimer; //Timer for how long middle blink ripples before changing to red
+const byte ROTATION_MS_PER_STEP = 50; //Winning blink displays a rotating pip, all others turn off.
+
+
+void rlglSetupLoop() {
+  rlglState = READY; //start at READY
+  roundOver = false;
+  isGreenLight = false;
+  score = 0;
+  state = RLGL_GAME;
+}
+
+
+void rlglGameLoop() {
+  
+  switch ( rlglState )  {
+    
+    case READY:
+      readyLoop();
+      break;
+
+    case REDLIGHT:
+      setValueSentOnAllFaces(rlglState);
+      redLightLoop();
+      break;
+
+    case GREENLIGHT:
+      setValueSentOnAllFaces(rlglState);
+      greenLightLoop();
+      break;
+
+    case LOSE_POINTS:
+      losePointsLoop();
+      break;
+
+    case GAIN_POINTS:
+      gainPointsLoop();
+      break;
+
+    case WINNER:
+      setValueSentOnAllFaces(rlglState);
+      winnerLoop();
+      break;
+
+    case LOSER:
+      setValueSentOnAllFaces(rlglState);
+      loserLoop();
+      break;
+  }
+
+  buttonSingleClicked();
+  buttonDoubleClicked();
+}
+
+void readyLoop() {
+  if (buttonDoubleClicked() && isBrain) { //long press middle blink to set it to the middle light and START GAME
+    rlglState = REDLIGHT; //start at red light
+    roundOver = true;
+    isGreenLight = false;
+  }
+//checks neighbors for REDLIGHT because the game starts on it. will change neighbors to LOSE_POINTS rlglState.
+  if(isPlayer){
+    FOREACH_FACE( f ) {
+      if ( !isValueReceivedOnFaceExpired( f ) ) {
+        if (getLastValueReceivedOnFace( f ) == REDLIGHT && didValueOnFaceChange( f )) { //if there is a red light neighbor
+          rlglState = LOSE_POINTS; //change self to losing point rlglState
+        }
+      }
+    }
+  }
+
+  if(!isPlayer && !isBrain){
+    FOREACH_FACE( f ) {
+      if ( !isValueReceivedOnFaceExpired( f ) ) {
+          setValueSentOnFace(getLastValueReceivedOnFace(f), (f+3)%6);
+          if(getLastValueReceivedOnFace(f) == WINNER){
+            rlglState = LOSER;
+          }
+          if(getLastValueReceivedOnFace(f) == LOSER){
+            setValueSentOnAllFaces(getLastValueReceivedOnFace);
+            rlglState = LOSER;
+          }
+      }
+    }
+  }
+
+  //Draw
+  if(isPlayer)
+    setColor(gameColors[colorIndex]); //Set Team
+  else if(isBrain)
+    setColor(CYAN);
+  else
+    setColor(WHITE);
+}
+
+void redLightLoop() { //loop for middle blink when it is red
+  if (roundOver == true && isGreenLight == false) { //roundOver checks if the light has changed
+    roundTimer.set(RED_INTERVAL_MIN + random(RED_INTERVAL_MAX));
+    roundOver = false;
+  }
+  setColor(RED);
+  if (roundTimer.isExpired()) { //when red light timer is over, change to green light
+    roundOver = true;
+    isGreenLight = true;
+    rlglState = GREENLIGHT;
+  }
+}
+
+void greenLightLoop() { //loop for middle blink when it is green
+  if (roundOver == true && isGreenLight == true) {
+    roundTimer.set(GREEN_INTERVAL_MIN + random(GREEN_INTERVAL_MAX)); //set random timer for green light
+    roundOver = false;
+  }
+  setColor(GREEN);
+  if (roundTimer.getRemaining() > 0 && roundTimer.getRemaining() < 301) { //in the last .3 seconds, ripple to send a visual warning
+    ripplingTimer.set(RIPPLING_INTERVAL);
+  }
+  if (!ripplingTimer.isExpired()) {
+    FOREACH_FACE(f) {
+      setColorOnFace(makeColorHSB(70, 255, random(50) + 205), f); //70 is GREEN HUE, ripple while the timer is not expired
+    }
+  }
+  if (roundTimer.isExpired()) { //when green light timer expires, change to red right
+    roundOver = true;
+    isGreenLight = false;
+    rlglState = REDLIGHT;
+  }
+}
+
+void losePointsLoop() { //player piece (outer ring) loop when the middle blink/light is red
+
+//checks for all sorts of button clicks to reset the player score is any of them are performed
+
+  if (buttonSingleClicked())
+  {
+    score = 0; //add multi-clicks to array of scores that align with team colours
+  }
+
+  if (buttonDoubleClicked()) {
+    score = 0;
+  }
+
+
+  if (buttonDown()) {
+    score = 0;
+  }
+
+  if (buttonReleased()) {
+    score = 0;
+  }
+
+  if (score < 0) { //if value drops below 0 just round it to 0, just in case
+    score = 0;
+  }
+
+  FOREACH_FACE( f ) {
+    if ( !isValueReceivedOnFaceExpired( f ) ) {
+      if (getLastValueReceivedOnFace( f ) == GREENLIGHT && didValueOnFaceChange( f )) { //if there is a green light neighbor and it recently changed
+        rlglState = GAIN_POINTS; //change self to gain points rlglState
+      }
+    }
+  }
+
+  scoreDisplay(); //display score blips on player blink
+  listenForWinner(); // listen for a winning blink
+}
+
+
+
+void gainPointsLoop() { //player piece loop for when middle blink/light is green
+
+  FOREACH_FACE( f ) {
+    if ( !isValueReceivedOnFaceExpired( f ) ) {
+      if (getLastValueReceivedOnFace( f ) == REDLIGHT && didValueOnFaceChange( f )) { //if there is a red light neighbor and it recently changed
+        rlglState = LOSE_POINTS; //change self to lose points rlglState
+      }
+    }
+  }
+
+
+  if (buttonReleased()) { //add score on spam click or click
+    score += 1;
+  }
+
+  scoreDisplay(); //display score
+  listenForWinner();  //listen for a winning blink
+}
+
+
+void scoreDisplay() {
+
+  if (score > CLICKTHRESHOLD) { //if greater than 10, light up face 0
+    setColorOnFace(WHITE, 0);
+  }
+
+  else {
+    setColorOnFace(gameColors[colorIndex], 0); //else, set face to off
+  }
+  if (score > CLICKTHRESHOLD * 2) {
+    setColorOnFace(WHITE, 1);
+  }
+  else {
+    setColorOnFace(gameColors[colorIndex], 1);
+  }
+
+  if (score >  CLICKTHRESHOLD * 3) {
+    setColorOnFace(WHITE, 2);
+  }
+  else {
+    setColorOnFace(gameColors[colorIndex], 2);
+  }
+
+  if (score >  CLICKTHRESHOLD * 4) {
+    setColorOnFace(WHITE, 3);
+  }
+  else {
+    setColorOnFace(gameColors[colorIndex], 3);
+  }
+
+  if (score >  CLICKTHRESHOLD * 5) {
+    setColorOnFace(WHITE, 4);
+  }
+  else {
+    setColorOnFace(gameColors[colorIndex], 4);
+  }
+  if (score == CLICKTHRESHOLD * 6) {
+    setColorOnFace(WHITE, 5);
+    //whoever gets to 60 wins!
+    rlglState = WINNER;
+    
+  }
+  else if (score <  CLICKTHRESHOLD * 6) { //light up face, but player hasn't won yet
+    setColorOnFace(gameColors[colorIndex], 5);
+  }
+
+}
+
+void winnerLoop() {
+    byte rotationFace = (millis() / ROTATION_MS_PER_STEP) % FACE_COUNT; // winning animation, rotating face
+    setColor(gameColors[colorIndex]); //set background to team colour
+    setColorOnFace( WHITE , rotationFace ); //set the rotating face colour
+}
+
+void loserLoop() { //dim then turn off all other blinks
+    setColor(dim(gameColors[colorIndex], 20));
+}
+
+void listenForWinner() { //outer blinks will listen for a winning blink throughout the game
+  FOREACH_FACE( f ) {
+    if ( !isValueReceivedOnFaceExpired( f ) ) {
+      if (getLastValueReceivedOnFace( f ) == WINNER) { //if there is a winner neighbor
+        rlglState = LOSER; //change self to loser
+      }
+      if (getLastValueReceivedOnFace( f ) == LOSER) { //if there is a loser neighbor
+        rlglState = LOSER; //change self to loser
+      }
+    }
+  }
+}
+
 
 ///
 //CHEERS
@@ -343,7 +633,7 @@ byte scores[6];
 vector highestScore;
 
 void cheersReset(){
-  bumpCount = 0;
+  score = 0;
   allowBump = false;
   lastBumped = 0;
   roundTimerStarted = false;  
@@ -406,11 +696,11 @@ void cheersGameLoop(){
         FOREACH_FACE(f){
           if(!isValueReceivedOnFaceExpired(f)){
             if(getLastValueReceivedOnFace(f) != lastBumped && getLastValueReceivedOnFace(f) >= SET_ID){
-              bumpCount++;
-              if(bumpCount == 30)
-                bumpCount = 31;
-              if(bumpCount == 19)
-                bumpCount = 20;
+              score++;
+              if(score == 30)
+                score = 31;
+              if(score == 19)
+                score = 20;
               lastBumped = getLastValueReceivedOnFace(f);
               changeColorAfterCheers();
               break;
@@ -423,7 +713,7 @@ void cheersGameLoop(){
       }
     }
     else{ //Time's up!
-      setValueSentOnAllFaces(bumpCount);
+      setValueSentOnAllFaces(score);
       if(isAlone())
         setColor(makeColorHSB(cheersPlayerHue, 255, 255));
     }
@@ -476,7 +766,7 @@ void cheersGameLoop(){
       if(receivedCount == 5){
         setValueSentOnFace(WIN, highestScore.b);
         FOREACH_FACE(f){
-          if(scores[f] == 0){
+          if(scores[f] == START_GAME){
             setValueSentOnFace(LOSE, f); 
           }
           else if(f != highestScore.b){
@@ -526,18 +816,10 @@ void changeColorAfterCheers(){
 //Musical Chairs
 ///
 
-vector colorPairs[3];
-byte usedColors[6];
 bool generateColors;
 
 void chairsReset(){
-  for(byte j = 0; j < 3; j++){
-    colorPairs[j] = {6,6};
-  }
   generateColors = true;
-  for(byte k = 0; k < 6; k++){
-    usedColors[k] = k;
-  }
 }
 
 void chairsSetupLoop(){
@@ -577,6 +859,8 @@ void chairsGameLoop(){
       //Shuffle colors
       byte r;
       byte temp;
+      vector colorPairs[3];
+      byte usedColors[] {0,1,2,3,4,5};
       for(byte j = 0; j < 6; j++){
         r = random(5);
         temp = usedColors[j];
@@ -594,9 +878,9 @@ void chairsGameLoop(){
       }
       FOREACH_FACE(f){
         if(f < 3)
-          setValueSentOnFace(colorPairs[f].a * 10 + colorPairs[f].b, f);
+          setValueSentOnFace((colorPairs[f].a * 10) + colorPairs[f].b, f);
         else
-          setValueSentOnFace(colorPairs[f%3].b * 10 + colorPairs[f%3].a, f);
+          setValueSentOnFace((colorPairs[f%3].b * 10) + colorPairs[f%3].a, f);
       }
       generateColors = false;
     }
@@ -606,8 +890,24 @@ void chairsGameLoop(){
   }
   //Get our colors
   if(!isBrain && generateColors){
-    
+    FOREACH_FACE(f){
+      if(!isValueReceivedOnFaceExpired(f)){
+        if(getLastValueReceivedOnFace(f) != START_GAME){
+          if(!isPlayer){
+            setValueSentOnFace(getLastValueReceivedOnFace(f),oppositeFace(f));
+            colorIndex = getLastValueReceivedOnFace(f)%10;
+          }
+          if(isPlayer){
+            colorIndex = (getLastValueReceivedOnFace(f) - (getLastValueReceivedOnFace(f)%10))/10;
+          }
+          generateColors = false;
+          break;
+        }
+      }
+    }
   }
+  if(isPlayer || isSpoke || isSpinnerRing || isJoint)
+    setColor(gameColors[colorIndex]);
 }
 
 
