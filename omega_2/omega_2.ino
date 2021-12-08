@@ -67,7 +67,6 @@ byte score; //ALSO USED FOR RLGL
 byte cheersPlayerHue; //Color hue
 //Brain
 byte receivedCount;
-byte receivedPlayers[6];
 //Timer
 unsigned long pctDone; //how close is the timer to being done?
 
@@ -133,10 +132,10 @@ void loop() {
       break;
     case CHAIRS_SETUP:
       setValueSentOnAllFaces(LAUNCH_CHAIRS);
-      //chairsSetupLoop();
+      chairsSetupLoop();
       break;
     case CHAIRS_GAME:
-      //chairsGameLoop();
+      chairsGameLoop();
       break;
   }
 }
@@ -221,13 +220,13 @@ void boardLoop(){
     launchingGame = false;
     switch((spinCurrent % 3)){
       case 0:
-        state = CHEERS_SETUP;
+        state = CHAIRS_SETUP;
         break;
       case 1:
-        state = CHEERS_SETUP;
+        state = CHAIRS_SETUP;
         break;
       case 2:
-        state = CHEERS_SETUP;
+        state = CHAIRS_SETUP;
         break;
     }
   }
@@ -644,7 +643,6 @@ void cheersReset(){
   cheersPlayerHue = 0;
   receivedCount = 0;
   for(byte i = 0; i < 6; i++){
-    receivedPlayers[i] = 6;
     scores[i] = 0;
   }
   highestScore.a = 0;
@@ -700,10 +698,12 @@ void cheersGameLoop(){
           if(!isValueReceivedOnFaceExpired(f)){
             if(getLastValueReceivedOnFace(f) != lastBumped && getLastValueReceivedOnFace(f) >= SET_ID){
               score++;
-              if(score == 30)
+              if(score == BUILD_BOARD){
                 score = 31;
-              if(score == 19)
+              }
+              if(score == START_GAME){
                 score = 20;
+              }
               lastBumped = getLastValueReceivedOnFace(f);
               changeColorAfterCheers();
               break;
@@ -717,8 +717,9 @@ void cheersGameLoop(){
     }
     else{ //Time's up!
       setValueSentOnAllFaces(score);
-      if(isAlone())
+      if(isAlone()){
         setColor(makeColorHSB(cheersPlayerHue, 255, 255));
+      }
     }
   }
   
@@ -751,14 +752,10 @@ void cheersGameLoop(){
      //Brain- send out winners/losers
    if(isBrain){
     if(roundTimerStarted && roundTimer.isExpired()){
-      if(buttonDoubleClicked()){ //Reset
-        state = BOARD_IDLE;
-        setValueSentOnAllFaces(BUILD_BOARD);
-      }
       byte receivedCount = 0;
       FOREACH_FACE(f){ //Get Scores
-        scores[f] = getLastValueReceivedOnFace(f);
-        if(scores[f] != START_GAME){
+        if(getLastValueReceivedOnFace(f) != START_GAME){
+          scores[f] = getLastValueReceivedOnFace(f);
           receivedCount++;
           if(scores[f] > highestScore.a){
             highestScore.a = scores[f];
@@ -777,6 +774,10 @@ void cheersGameLoop(){
           }
         }
       }
+      if(buttonDoubleClicked()){ //Reset
+        state = BOARD_IDLE;
+        setValueSentOnAllFaces(BUILD_BOARD);
+      }
     }
    }
 
@@ -784,8 +785,14 @@ void cheersGameLoop(){
   if(!isBrain && roundTimerStarted && roundTimer.isExpired()){
     FOREACH_FACE(f){
       if(!isValueReceivedOnFaceExpired(f)){
-        if(!isPlayer)
+        if(getLastValueReceivedOnFace(f) == BUILD_BOARD){
+          state = BOARD_IDLE;
+          setValueSentOnAllFaces(BUILD_BOARD);
+          break;
+        }
+        if(!isPlayer){
           setValueSentOnFace(getLastValueReceivedOnFace(f), oppositeFace(f));
+        }
         switch(getLastValueReceivedOnFace(f)){
           case WIN:
             setColor(GREEN);
@@ -796,15 +803,9 @@ void cheersGameLoop(){
           case NONE:
             setColor(dim(YELLOW, 50));
             break;
-          case BUILD_BOARD:
-            state = BOARD_IDLE;
-            setValueSentOnAllFaces(BUILD_BOARD);
-            break;
           default:
             break;
-        }
-        if(state == BOARD_IDLE)
-          break;
+        }          
       }
     }
   }
@@ -820,9 +821,11 @@ void changeColorAfterCheers(){
 ///
 
 bool generateColors;
+bool gameOver;
 
 void chairsReset(){
   generateColors = true;
+  gameOver = false;
 }
 
 void chairsSetupLoop(){
@@ -856,6 +859,27 @@ void chairsSetupLoop(){
 
 
 void chairsGameLoop(){
+  if(gameOver || isGameBoard){
+    if(isBrain && buttonDoubleClicked()){
+      state = BOARD_IDLE;
+      if(buttonDoubleClicked()){ //Reset
+        state = BOARD_IDLE;
+        setValueSentOnAllFaces(BUILD_BOARD);
+      }
+    }
+    if(!isBrain){
+      FOREACH_FACE(f){
+        if(!isValueReceivedOnFaceExpired(f)){
+          if(getLastValueReceivedOnFace(f) == BUILD_BOARD){
+            state = BOARD_IDLE;
+            setValueSentOnAllFaces(BUILD_BOARD);
+            break;
+          }
+        }
+      }
+    }
+    return;
+  }
   //Generate 3 color pairs
   if(isBrain){
     if(generateColors){
@@ -880,22 +904,36 @@ void chairsGameLoop(){
         setColorOnFace(gameColors[usedColors[k]], k);
       }
       FOREACH_FACE(f){
-        if(f < 3)
+        if(f < 3){
           setValueSentOnFace((colorPairs[f].a * 10) + colorPairs[f].b, f);
-        else
+        }
+        else{
           setValueSentOnFace((colorPairs[f%3].b * 10) + colorPairs[f%3].a, f);
+        }
       }
       generateColors = false;
     }
-    else if(buttonPressed()){
-      generateColors = true;
+    else{
+      FOREACH_FACE(f){
+      if(!isValueReceivedOnFaceExpired(f)){
+        if(getLastValueReceivedOnFace(f) == WIN){
+          gameOver = true;
+          for(byte i = 0; i < 6; i++){
+            if(i != f){
+              setValueSentOnFace(LOSE, i);
+            }
+          }
+          break;
+        }
+      }
+    }
     }
   }
   //Get our colors
   if(!isBrain && generateColors){
     FOREACH_FACE(f){
       if(!isValueReceivedOnFaceExpired(f)){
-        if(getLastValueReceivedOnFace(f) != START_GAME){
+        if(getLastValueReceivedOnFace(f) != START_GAME && getLastValueReceivedOnFace(f) != LAUNCH_CHAIRS){
           if(!isPlayer){
             setValueSentOnFace(getLastValueReceivedOnFace(f),oppositeFace(f));
             colorIndex = getLastValueReceivedOnFace(f)%10;
@@ -911,14 +949,61 @@ void chairsGameLoop(){
   }
 
   //Players need to attach to their matching color
-  if(isPlayer){
+  if(isPlayer && !generateColors){
     if(isAlone()){
-      setValueSentOnAllFaces(colorIndex);
+      setValueSentOnAllFaces(SET_ID+colorIndex);
+    }
+    FOREACH_FACE(f){
+      if(!isValueReceivedOnFaceExpired(f)){
+        if(getLastValueReceivedOnFace(f) == LOSE){
+          setColor(RED);
+          gameOver = true;
+          break;
+        }
+        if(getLastValueReceivedOnFace(f) == WIN){
+          setColor(GREEN);
+          gameOver = true;
+          break;
+        }
+      }
+    }
+  }
+  else if(!generateColors && !isBrain && !isGameBoard && !isPlayer){
+    FOREACH_FACE(f){
+      if(!isValueReceivedOnFaceExpired(f)){
+        if(getLastValueReceivedOnFace(f) == LOSE){
+          setValueSentOnFace(LOSE, oppositeFace(f));
+          setColor(RED);
+          gameOver = true;
+          break;
+        }
+        if(getLastValueReceivedOnFace(f) == WIN){
+          setValueSentOnFace(WIN, oppositeFace(f));
+          setColor(GREEN);
+          gameOver = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if(isJoint && !generateColors){
+    FOREACH_FACE(f){
+      if(!isValueReceivedOnFaceExpired(f)){
+        if(getLastValueReceivedOnFace(f) <= SET_ID){
+          if(SET_ID - getLastValueReceivedOnFace(f) == colorIndex){
+            setValueSentOnAllFaces(WIN);
+            gameOver = true;
+            break;
+          }
+        }
+      }
     }
   }
   
-  if(isPlayer || isSpoke || isSpinnerRing || isJoint)
+  if((isPlayer || isSpoke || isSpinnerRing || isJoint) && !gameOver){
     setColor(gameColors[colorIndex]);
+  }
 }
 
 
