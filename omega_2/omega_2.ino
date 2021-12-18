@@ -20,7 +20,7 @@
 const unsigned int   SPIN_TIMER_MAX = 500;
 const byte           SPIN_TIMER_START = 100;
 const unsigned int   LAUNCH_NEW_GAME = 500;
-const unsigned int   ROUND_LENGTH_CHEERS = 10000;
+const unsigned int   ROUND_LENGTH_CHEERS = 30000;
 const byte           FLASH_TIMER_MIN = 200;
 const unsigned int   FLASH_TIMER_MID = 400;
 const unsigned int   FLASH_TIMER_MAX = 600;
@@ -51,7 +51,7 @@ Timer roundTimer;
 bool roundTimerStarted;
 
 //Spinner
-const byte spins[] = {0,1,2};
+const byte spins[] = {0,1,2,1,0,2};
 byte spinIndex;
 bool isSpinning;
 byte spinCurrent;
@@ -142,23 +142,6 @@ void loop() {
       chairsGameLoop();
       break;
   }
-
-  /*if(buttonMultiClicked() && isBrain){
-    state = BOARD_SETUP;
-    init();
-    setValueSentOnAllFaces(HARD_RESET);
-  }
-  if(!isBrain){
-    FOREACH_FACE(f){
-      if(!isValueReceivedOnFaceExpired(f)){
-        if(getLastValueReceivedOnFace(f) == HARD_RESET && didValueOnFaceChange(f)){
-          state = BOARD_SETUP;
-          init();
-          setValueSentOnAllFaces(HARD_RESET);
-        }
-      }
-    }
-  }*/
 }
 
 //Assign our roles
@@ -453,7 +436,7 @@ void rlglSetupLoop() {
     setValueSentOnAllFaces(0);
 
   if(isBrain || isSpinnerRing)
-    setColor(ORANGE);
+    setColor(RED);
   else if(isPlayer)
     setColor(CYAN);
   else
@@ -536,7 +519,7 @@ void readyLoop() {
             mode = LOSER;
           }
           if(getLastValueReceivedOnFace(f) == LOSE){
-            setValueSentOnAllFaces(getLastValueReceivedOnFace);
+            setValueSentOnAllFaces(getLastValueReceivedOnFace(f));
             mode = LOSER;
           }
       }
@@ -649,42 +632,7 @@ void scoreDisplay() {
       }
     }
   }
-  /*
   
-  if (score > CLICKTHRESHOLD) { //if greater than 10, light up face 0
-    setColorOnFace(WHITE, 0);
-  }
-
-  else {
-    setColorOnFace(gameColors[colorIndex], 0); //else, set face to off
-  }
-  if (score > CLICKTHRESHOLD * 2) {
-    setColorOnFace(WHITE, 1);
-  }
-  else {
-    setColorOnFace(gameColors[colorIndex], 1);
-  }
-
-  if (score >  CLICKTHRESHOLD * 3) {
-    setColorOnFace(WHITE, 2);
-  }
-  else {
-    setColorOnFace(gameColors[colorIndex], 2);
-  }
-
-  if (score >  CLICKTHRESHOLD * 4) {
-    setColorOnFace(WHITE, 3);
-  }
-  else {
-    setColorOnFace(gameColors[colorIndex], 3);
-  }
-
-  if (score >  CLICKTHRESHOLD * 5) {
-    setColorOnFace(WHITE, 4);
-  }
-  else {
-    setColorOnFace(gameColors[colorIndex], 4);
-  }*/
   if(isPlayer){
     if (score >= CLICKTHRESHOLD * 4) {
       //setColorOnFace(WHITE, 5);
@@ -765,7 +713,6 @@ void cheersReset(){
   lastBumped = 0;
   roundTimerStarted = false;  
   launchingGame = false;
-  //cheersPlayerHue = 0;
   receivedCount = 0;
   for(byte i = 0; i < 6; i++){
     scores[i] = 0;
@@ -794,7 +741,7 @@ void cheersSetupLoop(){
   }
   
   if(isBrain || isSpinnerRing)
-    setColor(CYAN);
+    setColor(BLUE);
   else if(isPlayer)
     setColor(GREEN);
   else
@@ -934,11 +881,6 @@ void cheersGameLoop(){
   }
 }
 
-/*const byte HUE_INCREASE_AMT = 10;
-void changeColorAfterCheers(){
-  cheersPlayerHue += HUE_INCREASE_AMT;
-}*/
-
 ///
 //Musical Chairs
 ///
@@ -972,7 +914,7 @@ void chairsSetupLoop(){
   }
   
   if(isBrain || isSpinnerRing)
-    setColor(MAGENTA);
+    setColor(GREEN);
   else if(isPlayer)
     setColor(YELLOW);
   else
