@@ -13,7 +13,7 @@ const byte WIN = 59;  //Signals for winning and losing
 const byte LOSE = 60; // ^^^
 const byte NONE = 61; //Basically a blank signal 
 const byte RESET_1 = 62; //Signals for resetting the board
-const byte RESET_2 = 63;
+const byte RESET_2 = 63; // ^^^
 
 //Flashing
 const byte           FLASH_TIMER_MIN = 200;
@@ -41,6 +41,7 @@ bool isGameBoard; //Is this the ring where players put their pieces?
 byte brainFace; //The face that goes toward the center
 byte playerFace; //The face that goes toward the outside
 byte resetSignal = RESET_1;
+byte playersConnected;
 
 
 //Spinner
@@ -105,6 +106,9 @@ void setup() {
 }
 
 void loop() {
+
+  checkForReset();
+    
   // put your main code here, to run repeatedly:
   switch(state){
     case BOARD_SETUP:
@@ -120,14 +124,12 @@ void loop() {
       rlglGameLoop();
       break;
     case CHEERS:
-      cheersGameLoop();
+      //cheersGameLoop();
       break;
     case CHAIRS:
       chairsGameLoop();
       break;
   }
-  
-  checkForReset();
 }
 
 //Assign our roles
@@ -328,7 +330,6 @@ void gameSetup(){
       setColor(OFF);
     }
   }
-
 }
 
 
@@ -481,7 +482,7 @@ void rlglGameLoop() {
 //CHEERS!
 ///
 
-byte scores[6];
+byte winnerFace;
 byte highestScore;
 bool allowBump;
 byte lastBumped;
@@ -489,14 +490,12 @@ byte receivedCount;
 
 void cheersReset(){
   score = 0;
+  gameOver = false;
   allowBump = false;
   lastBumped = 0;
   roundTimerStarted = false;  
   launchingGame = false;
   receivedCount = 0;
-  for(byte i = 0; i < 6; i++){
-    scores[i] = 0;
-  }
   highestScore = 0;
 }
 
@@ -537,10 +536,18 @@ void cheersGameLoop(){
       if(isAlone()){
         setColor(gameColors[myID]);
       }
+      else if(checkAllFacesForValue(WIN)){
+        setColor(gameColors[2]);
+        gameOver = true;
+      }
+      else if(checkAllFacesForValue(NONE)){
+        setColor(gameColors[0]);
+        gameOver = true;
+      }
     }
   }
   
-  //SPINNER AND RING - Display timer
+  //Display timer
   if(!isPlayer){
     if(roundTimerStarted){
      if(!roundTimer.isExpired()){ //Timer has not expired yet
@@ -562,50 +569,56 @@ void cheersGameLoop(){
      }
      else{ //Timer is expired
       setColor(RED);
+       //Brain- send out winners/losers
+       if(isBrain){
+        byte receivedCount = 0;
+        byte received = 0;
+        FOREACH_FACE(f){ //Get Scores
+          if(getLastValueReceivedOnFace(f) != LAUNCH_CHEERS){
+            received = getLastValueReceivedOnFace(f);
+            receivedCount++;
+            if(received > highestScore){
+              highestScore = received;
+              winnerFace = f;
+            }
+          }
+        }
+        if(receivedCount == 5){
+          FOREACH_FACE(f){
+            if(f == winnerFace){
+              setValueSentOnFace(WIN, f);
+            }
+            else{
+              setValueSentOnFace(NONE,f);
+            }
+            gameOver = true;
+          }
+        }
+        if(buttonDoubleClicked() && gameOver){ //Reset
+          state = BOARD_IDLE;
+          setValueSentOnAllFaces(BUILD_BOARD);
+        }
+      }
+      else if(isSpoke){ //Timer expired, let's send signals and resolve this game
+        byte fromBrain = getLastValueReceivedOnFace(brainFace);
+        if(fromBrain == WIN){
+          setColor(gameColors[2]);
+          gameOver = true;
+        }
+        else if(fromBrain == NONE){
+          setColor(gameColors[0]);
+          gameOver = true;
+        }
+        passToPlayer(fromBrain);
+        passToBrain(getLastValueReceivedOnFace(playerFace));
+      }
      }
     }
   }
-
-   //Brain- send out winners/losers
-   if(isBrain && roundTimerStarted && roundTimer.isExpired()){
-    byte receivedCount = 0;
-    FOREACH_FACE(f){ //Get Scores
-      if(getLastValueReceivedOnFace(f) != LAUNCH_CHEERS){
-        scores[f] = getLastValueReceivedOnFace(f);
-        receivedCount++;
-        if(scores[f] > highestScore){
-          highestScore = scores[f];
-        }
-      }
-    }
-    if(receivedCount == 5){
-      FOREACH_FACE(f){
-        if(scores[f] == highestScore){
-          setValueSentOnFace(WIN, f);
-        }
-        else{
-          setValueSentOnFace(NONE,f);
-        }
-      }
-    }
-    if(buttonDoubleClicked()){ //Reset
+  if((gameOver || isGameBoard) && checkAllFacesForValue(BUILD_BOARD)){
       state = BOARD_IDLE;
       setValueSentOnAllFaces(BUILD_BOARD);
-    }
-  }
-   
-  if(!isBrain && roundTimerStarted && roundTimer.isExpired()){
-    //Timer expired, let's send signals and resolve this game
-    if(isSpoke){
-      setValueSentOnFace(getLastValueReceivedOnFace(brainFace),playerFace);
-      setValueSentOnFace(getLastValueReceivedOnFace(playerFace),brainFace);
-    }
- 
-    if(checkAllFacesForValue(BUILD_BOARD)){
-      state = BOARD_IDLE;
-      setValueSentOnAllFaces(BUILD_BOARD);
-    }
-  }
+   }
 }
 
 ///
@@ -758,12 +771,18 @@ void checkForReset(){
       resetSignal = RESET_1;
     }
   }
-  
-  if(!isBrain){
+  else if(!isBrain){
     FOREACH_FACE(f){
       if(!isValueReceivedOnFaceExpired(f)){
         if(getLastValueReceivedOnFace(f) >= RESET_1){
+         /*if(getLastValueReceivedOnFace(f) == RESET_1)
+            setColor(CYAN);
+          else if(getLastValueReceivedOnFace(f) == RESET_2)
+            setColor(MAGENTA);
+          else
+            setColor(WHITE);*/
           if(didValueOnFaceChange(f)){
+            //setColor(ORANGE);
             setValueSentOnAllFaces(getLastValueReceivedOnFace(f));
             init();
             break;
