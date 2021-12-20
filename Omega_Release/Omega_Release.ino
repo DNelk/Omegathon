@@ -1,18 +1,19 @@
 /*Constants*/
 
-const byte PLAYER = 6;
-const byte SPIN_TARGET = 7;
-const byte BUILD_BOARD = 9;
-const byte SET_ID = 10;
-const byte LAUNCH_RLGL = 16;
-const byte LAUNCH_CHEERS = 17;
-const byte LAUNCH_CHAIRS = 18;
-const byte START_GAME = 19;
-const byte SET_BOARD = 20;
-const byte WIN = 60;
-const byte LOSE = 61;
-const byte NONE = 62;
-const byte RESET = 63;
+const byte PLAYER = 6; //Default "Player" signal
+const byte SPIN_TARGET = 7; //Communicates if the spinner is on a spoke
+const byte BUILD_BOARD = 9; //Used for resetting the board after a game
+const byte SET_ID = 10; //Used in conjuction with an ID to communicate ID
+const byte LAUNCH_RLGL = 16;    ///
+const byte LAUNCH_CHEERS = 17;  //Signals for launching games
+const byte LAUNCH_CHAIRS = 18;  ///
+const byte START_GAME = 19; //Signal for launching a game in general
+const byte SET_BOARD = 20; //Signal for creating the board ring
+const byte WIN = 59;  //Signals for winning and losing
+const byte LOSE = 60; // ^^^
+const byte NONE = 61; //Basically a blank signal 
+const byte RESET_1 = 62; //Signals for resetting the board
+const byte RESET_2 = 63;
 
 //Flashing
 const byte           FLASH_TIMER_MIN = 200;
@@ -22,8 +23,8 @@ const unsigned int   FLASH_TIMER_MAX = 600;
 //Timer Lengths
 const unsigned int   SPIN_TIMER_MAX = 200;
 const byte           SPIN_TIMER_START = 100;
-const unsigned int   LAUNCH_NEW_GAME = 500;
-const unsigned int   ROUND_LENGTH_CHEERS = 5000;
+const unsigned int   LAUNCH_NEW_GAME = 200;
+const unsigned int   ROUND_LENGTH_CHEERS = 15000;
 const unsigned int   GAME_START = 500;
 
 /*Vars*/
@@ -37,14 +38,16 @@ bool isBrain; //Is this the central piece (this piece does lots of calculations)
 bool isSpoke; //Is this one of the pieces that connects to the spinner ring and the joints
 bool isJoint; //Is this the spoke piece that touches a player?
 bool isGameBoard; //Is this the ring where players put their pieces?
-byte brainFace;
-byte playerFace;
+byte brainFace; //The face that goes toward the center
+byte playerFace; //The face that goes toward the outside
+byte resetSignal = RESET_1;
+
 
 //Spinner
-bool isSpinning;
-byte spinCurrent;
-bool launchingGame;
-unsigned int currentTimeAmount;
+bool isSpinning; //Is the spinner currently running?
+byte spinCurrent; //Current face the spinner is landed on
+bool launchingGame; //Are we launching a game right now?
+unsigned int currentTimeAmount; //Current spinner interval length
 
 
 
@@ -53,6 +56,7 @@ byte myID; //Id of this piece
 byte score; //Used where score is relevant (like Red Light Green Light and Cheers)
 bool gameOver; //Used when the game is over
 bool roundOver; //Used when the round is over (like in RLGL)
+//bool allowReset;
 
 //Game State
 enum GameState{
@@ -65,7 +69,7 @@ enum GameState{
 };
 
 GameState state; //Current game state
-GameState tempState;
+GameState tempState; //Temp game state (for switching between games)
 
 //Flashing
 Timer flashTimer;
@@ -122,7 +126,7 @@ void loop() {
       chairsGameLoop();
       break;
   }
-
+  
   checkForReset();
 }
 
@@ -135,10 +139,11 @@ void boardSetup(){
     FOREACH_FACE(f){
       if(!isValueReceivedOnFaceExpired(f)){
         byte received = getLastValueReceivedOnFace(f);
-        //Did we recieve an ID from the brain/previous spoke
+        
+        //Did we recieve a SET_ID signal from the brain/previous spoke
         if(received >= SET_ID && received < SET_ID + 6){
           
-          //Get my ID, as well as my player and brain facing faces
+          //Isolate my ID, determine my player and brain facing faces
           myID = received - SET_ID;
           brainFace = f;
           playerFace = normalizeFace(f+3);
@@ -159,15 +164,16 @@ void boardSetup(){
           passToPlayer(getLastValueReceivedOnFace(f));
           state = BOARD_IDLE;
           break;
-        }
-        else if(received >= SET_BOARD && received < NONE  && didValueOnFaceChange(f)){ //Getting a board signal
+        } 
+        else if(received >= SET_BOARD && received < NONE  && didValueOnFaceChange(f)){
+          //If we received a SET_BOARD Signal, we are a game board piece.
           myID = received - SET_BOARD;
           setValueSentOnFace(((myID+1)%3) + SET_BOARD, normalizeFace(f+3));
           state = BOARD_IDLE;
-          break;
           isSpoke = false;
           isPlayer = false;
           isBrain = false;
+          break;
         }
       }
     }
@@ -185,13 +191,13 @@ void boardSetup(){
 
   //Draw
   if(isBrain){
-    setColor(MAGENTA);
+    setColor(gameColors[5]);
   }
   else if(isPlayer){
-    setColor(RED);
+    setColor(gameColors[0]);
   }
   else{
-    setColor(YELLOW);
+    setColor(gameColors[3]);
   }
 }
 
@@ -234,14 +240,10 @@ void boardLoop(){
     if(buttonDoubleClicked() && !isSpinning){
       startSpinner();
     }
-  
-    //Spin the Spinner
-    if(isSpinning){
+    else if(isSpinning){ //Spin the Spinner
       spinSpinner();
     }
-  
-    //Check for game launch
-    if(launchingGame && roundTimer.isExpired()){
+    else if(launchingGame && roundTimer.isExpired()){//Check for game launch
       switch((spinCurrent % 3)){
         case 0:
           tempState = RLGL;
@@ -261,6 +263,7 @@ void boardLoop(){
     }
   }
   else{
+    //Check for state change!
     if(checkAllFacesForValue(LAUNCH_RLGL)){
       tempState = RLGL;
       state = GAME_SETUP;
@@ -284,6 +287,7 @@ void boardLoop(){
 void gameSetup(){
   byte setupColor;
   byte setupSignal;
+  //Set our color and send out signals depending on the game we are going to play.
   switch(tempState){
     case RLGL:
       setupColor = 0;
@@ -313,6 +317,7 @@ void gameSetup(){
     setValueSentOnAllFaces(START_GAME);
   }
 
+  //Check for state change!
   if(!isBrain && checkAllFacesForValue(START_GAME)){
     state = tempState;
     setValueSentOnAllFaces(START_GAME);
@@ -655,14 +660,13 @@ void chairsGameLoop(){
       setValueSentOnAllFaces(SET_ID + myID);
     }
   }
-  
-  if(isSpoke){
+  else if(isSpoke){
     if(getLastValueReceivedOnFace(brainFace) == LOSE){
       passToPlayer(LOSE);
       setColor(RED);
       gameOver = true;
     }
-    if(getLastValueReceivedOnFace(playerFace) == WIN){
+    else if(getLastValueReceivedOnFace(playerFace) == WIN){
       passToBrain(WIN);
       setColor(GREEN);
       gameOver = true;
@@ -745,15 +749,26 @@ void checkIfPlayerOrBrain(){
 //Check for a reset
 void checkForReset(){
   if(isBrain && buttonMultiClicked()){
-    setValueSentOnAllFaces(RESET);
+    setValueSentOnAllFaces(resetSignal);
     init();
+    if(resetSignal == RESET_1){
+      resetSignal = RESET_2;
+    }
+    else{
+      resetSignal = RESET_1;
+    }
   }
-  FOREACH_FACE(f){
-    if(!isValueReceivedOnFaceExpired(f)){
-      if(getLastValueReceivedOnFace(f) == RESET && didValueOnFaceChange(f)){
-        setValueSentOnAllFaces(RESET);
-        init();
-        break;
+  
+  if(!isBrain){
+    FOREACH_FACE(f){
+      if(!isValueReceivedOnFaceExpired(f)){
+        if(getLastValueReceivedOnFace(f) >= RESET_1){
+          if(didValueOnFaceChange(f)){
+            setValueSentOnAllFaces(getLastValueReceivedOnFace(f));
+            init();
+            break;
+          }
+        }
       }
     }
   }
@@ -805,14 +820,18 @@ void spinSpinner(){
   }
 }
 
+
+//Pass info to the player face
 void passToPlayer(byte n){
   setValueSentOnFace(n, playerFace);
 }
 
+//Pass info to the brain face
 void passToBrain(byte n){
   setValueSentOnFace(n, brainFace);
 }
 
+//Loop through with foreach face and stop when a value is found
 bool checkAllFacesForValue(byte n){
   FOREACH_FACE(f){
     if(!isValueReceivedOnFaceExpired(f)){
