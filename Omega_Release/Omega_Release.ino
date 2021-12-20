@@ -24,7 +24,7 @@ const unsigned int   FLASH_TIMER_MAX = 600;
 const unsigned int   SPIN_TIMER_MAX = 200;
 const byte           SPIN_TIMER_START = 100;
 const unsigned int   LAUNCH_NEW_GAME = 200;
-const unsigned int   ROUND_LENGTH_CHEERS = 20000;
+const unsigned int   ROUND_LENGTH_CHEERS = 5000;
 const unsigned int   GAME_START = 500;
 
 /*Vars*/
@@ -79,7 +79,6 @@ unsigned int flashAmt;
 //Timer
 Timer roundTimer;
 bool roundTimerStarted;
-unsigned int pctDone;
 
 //*Functions*/
 
@@ -260,7 +259,7 @@ void boardLoop(){
          state = GAME_SETUP;
          break;
       }
-      /*tempState = RLGL;
+      /*tempState = CHEERS;
       state = GAME_SETUP;*/
     }
   }
@@ -346,8 +345,8 @@ void gameSetup(){
 //RLGL
 ///
 
-const byte LIGHT_INTERVAL_MAX = 40;
-const byte LIGHT_INTERVAL_MIN = 20;
+const unsigned int LIGHT_INTERVAL_MAX = 4000;
+const unsigned int LIGHT_INTERVAL_MIN = 2000;
 
 const byte RIPPLING_INTERVAL = 255;
 const byte CLICKTHRESHOLD = 10;
@@ -371,30 +370,30 @@ void rlglGameLoop() {
   if(isBrain){  
     //Set the round timer
     if(roundTimer.isExpired()){//TIME'S UP!
-      roundTimer.set((LIGHT_INTERVAL_MIN + random(LIGHT_INTERVAL_MAX)) * 100);
+      roundTimer.set(LIGHT_INTERVAL_MIN + random(LIGHT_INTERVAL_MAX));
       isGreenLight = !isGreenLight;
       if(isGreenLight){
         setValueSentOnAllFaces(GREEN_LIGHT);
-        setColor(gameColors[2]);
+        setColor(gameColors[2]); //Set to green
       }
       else{
         setValueSentOnAllFaces(RED_LIGHT);
-        setColor(gameColors[0]);
+        setColor(gameColors[0]); //Set to red
       }
     }
     else if(isGreenLight){ //Green light!
       //Set Color
-      if(roundTimer.getRemaining() < RIPPLING_INTERVAL){
-        flashColor(gameColors[3]);
-      } 
-    }  
+      /*if(roundTimer.getRemaining() < RIPPLING_INTERVAL){
+        flashColor(gameColors[3]); //Flicker to yellow 
+      }*/
+    } 
   }
   else if(isPlayer){ //Player behavior
     byte brainReceived = getLastValueReceivedOnFace(brainFace);
     isGreenLight = brainReceived == GREEN_LIGHT;
-    //Gaining points
-    if(isGreenLight && !isAlone()){
-      if(buttonPressed()){
+    if(buttonPressed()){
+      //Gaining points
+      if(isGreenLight && !isAlone()){
         score++;
         if(score >= CLICKTHRESHOLD * 4){
           gameOver = true;
@@ -402,9 +401,7 @@ void rlglGameLoop() {
           setColor(gameColors[2]);
         }
       }
-    }
-    else{ //Losing Points
-      if(buttonPressed()){
+      else if(!isGreenLight){ //Losing Points
         score = 0;
       }
     }
@@ -506,23 +503,23 @@ void cheersGameLoop(){
       }
     }
   }
-  
-  //Display timer
-  if(!isPlayer){
+  else{//Display timer
     if(roundTimerStarted){
      if(!roundTimer.isExpired()){ //Timer has not expired yet
+      unsigned int pctDone;
       pctDone = ROUND_LENGTH_CHEERS - roundTimer.getRemaining();
-      pctDone = (pctDone * 100) / ROUND_LENGTH_CHEERS;
+      pctDone = (unsigned int)(pctDone * 100);
+      pctDone = pctDone / ROUND_LENGTH_CHEERS;
       if(pctDone >= 75){
-        //flashAmt = FLASH_TIMER_MIN;
+        flashAmt = FLASH_TIMER_MIN;
         flashColor(gameColors[0]);
       }
       else if(pctDone >= 50){
-        //flashAmt = FLASH_TIMER_MID;
+        flashAmt = FLASH_TIMER_MID;
         flashColor(gameColors[3]);
       }
       else{
-        //flashAmt = FLASH_TIMER_MAX;
+        flashAmt = FLASH_TIMER_MAX;
         flashColor(gameColors[2]);
       }
      }
@@ -533,7 +530,7 @@ void cheersGameLoop(){
         byte receivedCount = 0;
         byte received = 0;
         FOREACH_FACE(f){ //Get Scores
-          if(getLastValueReceivedOnFace(f) != LAUNCH_CHEERS){
+          if(getLastValueReceivedOnFace(f)!=0){
             received = getLastValueReceivedOnFace(f);
             receivedCount++;
             if(received > highestScore){
